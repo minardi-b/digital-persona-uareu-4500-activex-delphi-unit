@@ -1,0 +1,336 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.0 Transitional//EN" >
+<html>
+<head>
+    <title>U.are.U ActiveX GUI Sample</title>
+    <style type="text/css">
+        img
+        {
+            border: 0;
+            visibility: hidden;
+            background-color: white;
+            height: 200;
+            width: 200;
+        }
+        input
+        {
+            width: 150px;
+            font-family: Tahoma;
+        }
+        div
+        {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 400px;
+            height: 300px;
+            background-color: #ffffff;
+            visibility: hidden;
+        }
+        textarea
+        {
+            font-size: 11px;
+            width: 500px;
+            height: 175px;
+            font-family: Tahoma;
+        }
+    </style>
+    <object style='height: 0px; width: 0px;' id='objReaderCollection' name='objReaderCollection'
+        classid='clsid:CAC5592F-EBA5-487C-AF8A-F35A70FAA33B'>
+    </object>
+</head>
+<body onload="Initialize();" style="font-family: Tahoma; font-size: 11px;">
+    <script type="text/javascript">
+        var readers;
+        var reader;
+
+        function Initialize() {
+            if (getInternetExplorerVersion() < 7) {
+                alert("DigitalPersona ActiveX controls only work on Internet Explorer 7 or later.");
+            }
+
+            RefreshList();
+        }
+
+
+        // Cancels the current enrollment.
+        function Cancel() {
+            if (confirm("Are you sure you want to cancel this enrollment?")) {
+                objEnrollment.Cancel();
+                btnCancel.disabled = "disabled";
+            }
+            else {
+            }
+        }
+
+        function RefreshList() {
+            // Clear textarea.
+            lstReaders.value = "";
+
+            lstReaders.options.length = 0;
+
+            readers = new Array();
+
+            // Query devices.
+            readers = objReaderCollection.GetReaders();
+            
+            // Add devices to select list.
+            if (readers.count > 0) {
+                for (var i = 0; i < readers.count; i++) {
+                    var reader = readers(i);
+                    lstReaders.options[i] = new Option(reader.SerialNumber);
+                }
+                btnCapabilities.disabled = "";
+            }
+        }
+
+        function Capabilities() {
+            // Get selected reader.
+            reader = readers(lstReaders.selectedIndex);
+
+            // Show.
+            divCapabilities.style.visibility = "visible";
+
+            // Open.
+            result = reader.Open(2);
+
+            if (result != "DP_SUCCESS") {
+                alert("Non-success result:  " + result + ".");
+                return;
+            }
+
+            // Clear textarea.
+            txtCaps.value = "";
+
+            // Add capabilities to textarea.
+            txtCaps.value += "Can Capture:  " + reader.CanCapture + "\r\n";
+            txtCaps.value += "Can Stream:  " + reader.CanStream + "\r\n";
+            txtCaps.value += "Extract Features:  " + reader.ExtractFeatures + "\r\n";
+            txtCaps.value += "Can Match:  " + reader.CanMatch + "\r\n";
+            txtCaps.value += "Can Identify:  " + reader.CanIdentify + "\r\n";
+            txtCaps.value += "Has Fingerprint Storage:  " + reader.HasFingerprintStorage + "\r\n";
+            txtCaps.value += "Has Power Management:  " + reader.HasPowerManagement + "\r\n";
+            txtCaps.value += "PIV Compliant:  " + reader.PIVCompliant + "\r\n";
+
+            var resolutions = reader.Resolutions
+            for (var i = 0; i < resolutions.count; i++) {
+                if (resolutions(i) != "0") {
+                    txtCaps.value += "Resolution " + i + ":  " + resolutions(i) + "\r\n";
+                }
+            }
+
+            // Close.
+            reader.Dispose();
+        }
+
+        function Back_GetReader() {
+            if (readers == null) return;
+
+            if (readers.count == 0) return;
+
+            // Get selected reader.
+            reader = readers(lstReaders.selectedIndex);
+
+            txtSelectedReader.value = reader.SerialNumber;
+            divReaderSelection.style.visibility = "hidden";
+            btnEnroll.disabled = "";
+        }
+
+        function Back_Enroll() {
+            divVisibility(divEnrollment, false);
+            objEnrollment.Cancel();
+            RefreshList();
+        }
+
+        function Enroll() {
+            divVisibility(divEnrollment, true);
+            objEnrollment.SetReader(reader);
+            objEnrollment.SetFormatMinutiae = "ANSI";
+            objEnrollment.SetCapturePriority("DP_PRIORITY_COOPERATIVE");
+        }
+
+        function Back_Identify() {
+            divVisibility(divIdentification, false);
+            objIdentification.StopIdentification();
+            RefreshList();
+        }
+
+        function Identify() {
+            divVisibility(divIdentification, true);
+
+            // Set the threshold score.
+            objIdentification.ThresholdScore = 0x7FFFFFFF * 1/100000;
+
+            // Set the max number of results.
+            objIdentification.MaximumResult = 10;
+
+            // Reuse the enrollment GUI control's reader.
+            objIdentification.SetReader(reader);
+
+            objEnrollment.SetCapturePriority("DP_PRIORITY_COOPERATIVE");
+
+            // Load an Fmd into the Identification GUI control.
+            objIdentification.ClearFmds();
+            for (var i = 0; i < 10; i++) {
+                if (fmd[i] != null) {
+                    var loadFmd = fmd[i];
+                    objIdentification.LoadFmd(loadFmd);
+                }
+            }
+
+            // Start identification.
+            SendText(txtMessages_Identify, "Now identifying...");
+            objIdentification.StartIdentification();
+        }
+
+        function SendText(element, value) {
+            element.value += value + "\r\n";
+        }
+        function Pause(ms) {
+            var date = new Date();
+            var curDate = null;
+            do { curDate = new Date(); }
+            while (curDate - date < ms);
+        }
+        function divVisibility(div, show) {
+            if (show)
+                div.style.visibility = "visible";
+            else
+                div.style.visibility = "hidden";
+        }
+        function getInternetExplorerVersion()
+        // Returns the version of Internet Explorer or a -1
+        // (indicating the use of another browser).
+        {
+            var rv = -1; // Return value assumes failure.
+            if (navigator.appName == 'Microsoft Internet Explorer') {
+                var ua = navigator.userAgent;
+                var re = new RegExp("MSIE ([0-9]{1,}[\.0-9]{0,})");
+                if (re.exec(ua) != null)
+                    rv = parseFloat(RegExp.$1);
+            }
+            return rv;
+        }
+    </script>
+    Selected Reader:
+    <br />
+    <input type="text" name="txtSelectedReader" style="font-size: 11px; width: 300;"
+        id="txtSelectedReader" value="" /><br />
+    <input type="button" name="btnReaderSelection" id="btnReaderSelection" value="Reader Selection"
+        onclick="divVisibility(divReaderSelection, true);" /><br />
+    <input type="button" name="btnEnroll" id="btnEnroll" value="Enrollment" disabled="disabled"
+        onclick="Enroll();" /><br />
+    <input type="button" name="btnIdentify" id="btnIdentify" value="Identification" disabled="disabled"
+        onclick="Identify();" /><br />
+    <div id="divReaderSelection">
+        Select Reader:
+        <br />
+        <select style="font-size: 11px; width: 300px; height: 200px;" id="lstReaders" name="lstReaders">
+        </select>
+        <input type="button" name="btnRefreshList" id="btnRefreshList" value="Refresh List"
+            onclick="RefreshList();" /><br />
+        <input type="button" name="btnCapabilities" id="btnCapabilities" value="Get Reader Capabilities"
+            disabled="disabled" onclick="Capabilities();" /><br />
+        <input type="button" name="btnBack" id="btnBack" value="Select" onclick="Back_GetReader();" />
+    </div>
+    <div id="divCapabilities" style="top: 33;">
+        <textarea rows="" cols="" id="Textarea1" name="txtCaps"></textarea><br />
+        <input type="button" name="btnBack_Caps" id="btnBack_Caps" value="Back" onclick="divVisibility(divCapabilities, false);" />
+    </div>
+    <div id="divEnrollment" style="display: block;">
+        <table>
+            <tr valign="top">
+                <td width="500px">
+                    <object id="objEnrollment" name="objEnrollment" classid="clsid:977AA4C5-6737-4E79-BBAD-657A94362D56">
+                    </object>
+                </td>
+                <td>
+                    <textarea cols="" rows="" style="width: 300px; height: 225px;" id="txtMessages_Enroll"
+                        name="txtMessages_Enroll" ondblclick="this.value = ''"></textarea><br />
+                    <input id="btnCancel" type="button" style="display: block" disabled="disabled" value="Cancel" onclick="Cancel();" />
+                    <input type="button" name="btnBack_Enrollment" id="btnBack_Enrollment" value="Back" onclick="Back_Enroll();" />
+                </td>
+            </tr>
+        </table>
+    </div>
+    <div id="divIdentification" style="display: block;">
+        <table>
+            <tr valign="top">
+                <td width="500px">
+                    <object style="" id="objIdentification" name="objIdentification" classid="clsid:DB3C2981-2434-403B-B3DE-71A34741D1AB">
+                    </object>
+                </td>
+                <td>
+                    <textarea cols="" rows="" style="width: 300px; height: 225px;" id="txtMessages_Identify"
+                        name="txtMessages_Identify" ondblclick="this.value = ''"></textarea><br />
+                    <input type="button" name="btnBack_Identify" id="btnBack_Identify" value="Back" onclick="Back_Identify();" />
+                </td>
+            </tr>
+        </table>
+    </div>
+    <script type="text/javascript">
+    // Enrollment GUI control events.
+    function objEnrollment::On_StartEnroll(control, result, position)
+    { 
+        btnCancel.disabled = "";
+        SendText(txtMessages_Enroll, "OnStartEnroll:  " + control.GetReader().Name + ", finger " + position);
+    }
+    function objEnrollment::On_Captured(control, result, position)
+    { 
+        SendText(txtMessages_Enroll, "OnCaptured:  " + control.GetReader().Name + ", finger " + position + ", quality " + result.Quality);
+    }
+    function objEnrollment::On_Cancel(control, result, position)
+    { 
+        btnCancel.disabled = "disabled";
+        SendText(txtMessages_Enroll, "OnCancel:  " + control.GetReader().Name + ", finger " + position);
+    }
+    function objEnrollment::On_Delete(control, result, position)
+    { 
+        btnCancel.disabled = "disabled";
+        
+        fmd[position] = null;
+        fmdCount--;
+
+        if (fmdCount == 0)
+        {
+            btnIdentify.disabled = "disabled";
+        }
+        
+       SendText(txtMessages_Enroll, "OnDelete:  " + control.GetReader().Name + ", finger " + position);
+    }
+    var fmd = [null, null, null, null, null, null, null, null, null, null];
+    var fmdCount = 0;
+    function objEnrollment::On_Enroll(control, result, position)
+    { 
+        btnCancel.disabled = "disabled";
+
+        SendText(txtMessages_Enroll, "OnEnroll:  " + control.GetReader().Name + ", finger " + position);
+       
+        fmd[position] = result.Fmd;
+        fmdCount++;
+                
+        btnIdentify.disabled = "";
+    }
+    // Identification GUI control event
+    function objIdentification::On_Identify(control, result)
+    { 
+        if (result.ResultCode != "DP_SUCCESS")
+        {
+            if (result.Indexes.count == 0)
+            {
+                if (result.ResultCode == "DP_INVALID_PARAMETER")
+                {
+                    SendText(txtMessages_Identify, "Warning: Fake finger was detected.");
+                }
+                else if (result.ResultCode == "DP_NO_DATA")
+                {
+                    SendText(txtMessages_Identify, "Warning: No finger was detected.");
+                }
+            }
+        }
+        else{
+            SendText(txtMessages_Identify, "OnIdentify:  " + (result.Indexes.count == 0 ? "No " : "One or more ") + "matches.  Try another finger.");
+        }
+    }
+    </script>
+</body>
+</html>

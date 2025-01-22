@@ -1,0 +1,674 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.0 Transitional//EN" >
+<html>
+<head>
+    <title>U.are.U ActiveX Sample</title>
+    <style type="text/css">
+        img
+        {
+            border: 0;
+            visibility: hidden;
+            background-color: white;
+            height: 200;
+            width: 200;
+        }
+        input
+        {
+            width: 150px;
+            font-family: Tahoma;
+        }
+        div
+        {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 400px;
+            height: 300px;
+            background-color: #ffffff;
+            visibility: hidden;
+        }
+        textarea
+        {
+            font-size: 11px;
+            width: 500px;
+            height: 175px;
+            font-family: Tahoma;
+        }
+    </style>
+    <object style="height: 0px; width: 0px;" id="objFeatureExtraction" name="objFeatureExtraction"
+        classid="clsid:733A2D1B-9F3D-423D-8700-4F2C8E88EAF9">
+    </object>
+    <object style="height: 0px; width: 0px;" id="objEnrollment" name="objEnrollment"
+        classid="clsid:A1589E23-FE6E-43D8-9EDF-93142671C47A">
+    </object>
+    <object style="height: 0px; width: 0px;" id="objComparison" name="objComparison"
+        classid="clsid:C864A916-E288-439B-8054-C695C9677D84">
+    </object>
+    <object style='height: 0px; width: 0px;' id='objReaderCollection' name='objReaderCollection'
+        classid='clsid:CAC5592F-EBA5-487C-AF8A-F35A70FAA33B'>
+    </object>
+    <object style='height: 0px; width: 0px;' id='objReader' name='objReader' classid='clsid:C4287526-1485-48CB-99BB-6CC4A3552B81'>
+    </object>
+    <script type="text/javascript">
+
+        var readers;
+        var reader;
+        var result;
+        var reset = false;
+        var readerDisposed = true;
+        var streamingMode = false;
+        var enrollmentCount = 0;
+        var identifyState = 0;
+        var verifyState = 0;
+        var fmd1Identify, fmd2Identify, fmd3Identify;
+        var fmd1Verify, fmd2Verify;
+        var fmd1Enroll;
+        var OKAY = 0;
+        var CONTINUE = 1;
+        var ERROR = 2;
+        var currentDiv = null;
+
+        function objReader::On_Captured(reader, captureResult) 
+        {              
+            try {                                       
+                // hide the fingerprint image.
+                imgFingerprint.style.visibility = "hidden";
+
+                var result = ValidateCapture(reader, captureResult);
+                if (result == OKAY)
+                {    
+                    if (captureResult.Quality == "DP_QUALITY_GOOD")
+                    {
+                        if (divEnrollment.style.visibility == "visible")
+                        {
+                            Enroll(reader, captureResult);
+                        }
+                        else if (divIdentification.style.visibility == "visible")
+                        {
+                            Identify(reader, captureResult);
+                        }
+                        else if (divVerification.style.visibility == "visible")
+                        {
+                            Verify(reader, captureResult);
+                        }   
+                    }
+                    var t = setTimeout("CaptureThread(currentDiv)", 25);                    
+                }         
+                else if (result == ERROR)
+                {
+                    DestroyReader();
+                    DisableEngine();
+
+                    btnCaptureThread.disabled = "";
+                    btnEnrollment.disabled = "";
+                    btnBack_Enrollment.disabled = ""; 
+                    btnVerify.disabled = "";
+                    btnIdentify.disabled = "";
+                }
+            } catch (e) {    
+            } finally {    
+            }
+        }        
+
+        function Capture(div, btnCapture, btnBack) {
+            reset = false;
+
+            // Hide image.
+            imgFingerprint.style.visibility = "hidden";
+            
+            // Open.
+            result = reader.Open("DP_PRIORITY_COOPERATIVE");
+
+            if (result != "DP_SUCCESS") {
+                alert("Non-success result:  " + result + ".");
+                DestroyReader();
+                DestroyEngine();
+                return;
+            }
+
+            readerDisposed = false;
+                
+            btnCapture.disabled = "disabled";
+
+            streamingMode = false;
+            CaptureThread(div);
+        }
+        
+        function StreamThread(div) {
+            currentDiv = div;
+            while (!reset) {
+                var captureResult;
+                captureResult = reader.GetStreamImage("ANSI", 0, 500);
+                    
+                if (captureResult.Quality == "DP_QUALITY_TIMED_OUT") {
+                    alert("A timeout occurred.  Reselect a reader.");
+                    reset = true;
+                    break;
+                }
+
+                if (captureResult.ResultCode != "DP_SUCCESS") {
+                    alert("Non-success result:  " + captureResult.ResultCode + ".");
+                    reset = true;
+                    DestroyReader();
+                    DisableEngine();
+                    break;
+                }
+                else {
+                    if (captureResult.Quality == "DP_QUALITY_CANCELED") {
+                        reset = true;
+                        break;
+                    }
+                    else if (captureResult.Quality == "DP_QUALITY_GOOD") {
+                        var fivs = captureResult.Fid.Fivs;
+                        if (fivs.count != 0) {
+                            switch (getIEVersion(this.document)) {
+                                case 7:
+                                    alert("Fingerprint captured."); // IE 7 does not have the ability to display images using data URI schemes.
+                                    imgFingerprint.style.visibility = "hidden";
+                                    break;
+                                default:
+                                    imgFingerprint.src = "data:image/png;base64," + fivs(0).Bitmap(.25); // IE 8 has a 32KB limit on data URI schemes so we shrink for viewing only.  fivs(0).Bitmap has the full image.
+                                    imgFingerprint.style.width = "100";
+                                    imgFingerprint.style.height = "100";
+                                    imgFingerprint.style.visibility = "visible";
+                                    break;
+                            }
+
+                            return;
+                        }
+                    }
+                    else if (captureResult.Quality == "DP_QUALITY_TIMED_OUT") {
+                        alert("Warning: A timeout occurred while capturing. Please start the operation over.");
+                        break;
+                    }
+                    else {
+                        alert("Capture result:  " + captureResult.Quality + ".  Please try again.");
+                    }
+                }
+            }
+        }
+
+        function CaptureThread(div) {
+            currentDiv = div;
+            while (!reset) {
+                // Check status.
+                result = reader.GetStatus();
+
+                if (result == "DP_STATUS_BUSY") {
+                    Pause(50);
+                    continue;
+                }
+                else if (result == "DP_STATUS_NEED_CALIBRATION") {
+                    reader.Calibrate();
+                }
+                else if (result != "DP_STATUS_READY" && result != "DP_SUCCESS") {
+                    alert("Non-success result:  " + result + ".");
+                    reset = true;
+                    DestroyReader();
+                    DisableEngine();
+                    break;
+                }
+
+                reader.Capture("ANSI", 0, -1, 500);
+                break;
+            }
+        }
+
+        function Back_Capture() {
+            reset = true;
+            
+            if (reader != null) 
+            {
+                if (streamingMode == true) {
+                    reader.StopStreaming();
+                }
+                else
+                {
+                    // Cancel.
+                    reader.CancelCapture();
+                }
+            }
+            
+            var t = setTimeout("reader.Dispose()", 50);
+            readerDisposed = true;
+
+            imgFingerprint.style.visibility = "hidden";
+            divCapture.style.visibility = "hidden";
+            btnCaptureThread.disabled = "";
+        }
+
+        function Streaming() {
+            // Open.
+            result = reader.Open("DP_PRIORITY_COOPERATIVE");
+
+            if (result != "DP_SUCCESS") {
+                alert("Non-success result:  " + result + ".");
+                DestroyReader();
+                DisableEngine();
+                return;
+            }
+            
+            readerDisposed = false;
+
+            if (!reader.CanStream) {
+                alert("The selected reader cannot stream at this time.");
+                reader.Dispose();
+                readerDisposed = true;
+                return;
+            }
+
+            divCapture.style.visibility = "visible";
+            imgFingerprint.style.visibility = "visible";
+            btnCaptureThread.disabled = "disabled";
+            reset = false;
+
+            result = reader.StartStreaming();
+
+            if (result != "DP_SUCCESS") {
+                alert("Non-success result:  " + result + ".");
+                DestroyReader();
+                DisableEngine();
+                return;
+            }
+
+            Stream();
+        }
+
+        function Stream() {
+            streamingMode = true;
+            StreamThread(divCapture);
+            if (!reset)
+                var t = setTimeout("Stream()", 25);
+        }
+
+        function Enroll(reader, captureResult)
+        {
+           // Feature extraction.
+            fmd1Enroll = objFeatureExtraction.CreateFmdFromFid(fid1, "ANSI").Fmd;
+
+            objEnrollment.LoadFmd(fmd1Enroll);
+
+            result = objEnrollment.CreateEnrollmentFmd("ANSI");
+
+            // Stop collecting if successful.
+            if (result.ResultCode == "DP_SUCCESS") {
+                enrollmentCount = 0;
+                SendText(txtEnroll, "Enrollment is successful.");
+                objEnrollment.ClearFmds();
+                SendText(txtEnroll, "Place a finger on the reader then remove it.  ");
+            }
+            else if (result.ResultCode == "DP_ENROLLMENT_INVALID_SET") {
+                    enrollmentCount = 0;
+                    SendText(txtEnroll, "Enrollment is unsuccessful.  Restarting.");
+                    objEnrollment.ClearFmds();
+                    SendText(txtEnroll, "Place a finger on the reader then remove it.  ");
+            }
+            else {
+                enrollmentCount++;
+                
+                SendText(txtEnroll, "Captured finger count:  " + enrollmentCount);
+                SendText(txtEnroll, "Finger captured and extracted to an FMD. \r\n\r\nPlace the same finger on the reader to continue enrollment.");
+            }
+        }
+
+        function Identify(reader, captureResult)
+        {
+            switch (identifyState) {
+                case 0:
+                    // extract.
+                    fmd1Identify = objFeatureExtraction.CreateFmdFromFid(fid1, "ANSI").Fmd;
+
+                    SendText(txtIdentify, "Finger captured and extracted to an FMD. \r\nPlace your right index finger on the reader then remove it.");
+
+                    identifyState++;
+                    break;
+                case 1:
+                    // extract.
+                    fmd2Identify = objFeatureExtraction.CreateFmdFromFid(fid1, "ANSI").Fmd;
+
+                    SendText(txtIdentify, "Finger captured and extracted to an FMD. \r\nPlace any finger on the reader to identify.");
+
+                    identifyState++;
+                    break;
+                case 2:
+                    // extract.
+                    var fmd3Identify = objFeatureExtraction.CreateFmdFromFid(fid1, "ANSI").Fmd;
+
+                    SendText(txtIdentify, "Fingers captured and extracted to FMDs. Identifying...");
+
+                    // Identify
+                    objComparison.ClearFmds();
+                    objComparison.LoadFmd(fmd1Identify);
+                    objComparison.LoadFmd(fmd2Identify);
+                    var identifyResult = objComparison.Identify(fmd3Identify, 0, 0x7FFFFFFF * 1/100000, 2);
+
+                    // Send result.
+                    var indexes = identifyResult.Indexes;
+
+                    SendText(txtIdentify, "Match count = " + indexes.count);
+                    SendText(txtIdentify, "Place your right thumb on the reader then remove it.  ");
+
+                    identifyState = 0;
+                    break;
+                default:
+                    break;
+            }
+        }
+
+        function Verify(reader, captureResult)
+        {
+            switch (verifyState) {
+                case 0:
+                    // extract.
+                    fmd1Verify = objFeatureExtraction.CreateFmdFromFid(fid1, "ANSI").Fmd;
+
+                    SendText(txtVerify, "Finger captured and extracted to an FMD. \r\nPlace any finger on the reader to verify.");
+
+                    verifyState = 1;
+                    break;
+                case 1:
+                    // extract.
+                    fmd2Verify = objFeatureExtraction.CreateFmdFromFid(fid1, "ANSI").Fmd;
+
+                    // Match.
+                    var compareResult = objComparison.Compare(fmd1Verify, 0, fmd2Verify, 0);
+                    if (compareResult.Score < (2147483647/100000)) 
+                        matchResult = " (match)";
+                    else
+                        matchResult = " (no match)";
+                    SendText(txtVerify, "Fingers captured and extracted to FMDs. Comparing...");
+                    SendText(txtVerify, "Dissimilarity score = " + compareResult.Score + matchResult);
+                    SendText(txtVerify, "Place a finger on the reader then remove it.  ");
+
+                    verifyState = 0;
+                    break;
+                default:
+                    break;
+            }
+        }
+
+                function RefreshList() {
+            // Clear textarea.
+            lstReaders.value = "";
+
+            lstReaders.options.length = 0;
+
+            readers = new Array();
+
+            // Query devices.
+            readers = objReaderCollection.GetReaders();
+
+            // Add devices to select list.
+            if (readers.count > 0) {
+                for (var i = 0; i < readers.count; i++) {
+                    var reader = readers(i);
+                    lstReaders.options[i] = new Option(reader.SerialNumber);
+                }
+                btnCapabilities.disabled = "";
+            }
+        }
+
+        function Capabilities() {
+            // Get selected reader.
+            reader = readers(lstReaders.selectedIndex);
+
+            // Show.
+            divCapabilities.style.visibility = "visible";
+
+            // Open.            
+            result = reader.Open("DP_PRIORITY_COOPERATIVE");
+
+            if (result != "DP_SUCCESS") {
+                alert("Non-success result:  " + result + ".");
+                DestroyReader();
+                DestroyEngine();
+                return;
+            }
+            
+            readerDisposed = false;
+
+            // Clear textarea.
+            txtCaps.value = "";
+
+            // Add capabilities to textarea.
+            txtCaps.value += "Can Capture:  " + reader.CanCapture + "\r\n";
+            txtCaps.value += "Can Stream:  " + reader.CanStream + "\r\n";
+            txtCaps.value += "Extract Features:  " + reader.ExtractFeatures + "\r\n";
+            txtCaps.value += "Can Match:  " + reader.CanMatch + "\r\n";
+            txtCaps.value += "Can Identify:  " + reader.CanIdentify + "\r\n";
+            txtCaps.value += "Has Fingerprint Storage:  " + reader.HasFingerprintStorage + "\r\n";
+            txtCaps.value += "Has Power Management:  " + reader.HasPowerManagement + "\r\n";
+            txtCaps.value += "PIV Compliant:  " + reader.PIVCompliant + "\r\n";
+            txtCaps.value += "Indicator Type:  " + reader.IndicatorType + "\r\n";
+
+            var resolutions = reader.Resolutions
+            for (var i = 0; i < resolutions.count; i++) {
+                if (resolutions(i) != "0") {
+                    txtCaps.value += "Resolution " + i + ":  " + resolutions(i) + "\r\n";
+                }
+            }
+
+            // Close.
+            reader.Dispose();
+            readerDisposed = true;
+        }
+
+        function Back_GetReader() {
+            if (readers == null) {
+                divReaderSelection.style.visibility = "hidden";
+                return;
+            }
+
+            if (readers.count == 0) {
+                divReaderSelection.style.visibility = "hidden";
+                return;
+            }
+
+            // Get selected reader.
+            reader = readers(lstReaders.selectedIndex);
+
+            // Replace the reader with registered events with the reader returned by ReaderCollection.
+            objReader.ReaderX = reader.ReaderX;
+
+            // In case user did not wait for reader to clean up.  Must create a new IE session (File->NewSession) or create IE using -nomerge argument.  
+            objReader.Dispose();
+                                                
+            txtSelectedReader.value = reader.SerialNumber;
+            divReaderSelection.style.visibility = "hidden";
+            btnCapture.disabled = "";
+            btnEnroll.disabled = "";
+            btnIdentification.disabled = "";
+            btnStreaming.disabled = "";
+            btnVerification.disabled = "";
+        }
+          
+          function ValidateCapture(reader, captureResult)
+          {
+                 if (captureResult == null)
+                {
+                    alert("Error occurred in capture.  Reselect a reader and try again.");    
+                    return ERROR;
+                }
+
+                if (captureResult.ResultCode != "DP_SUCCESS") {
+                    alert("Non-success result:  " + captureResult.ResultCode + ".");
+                    return ERROR;
+                }
+                        
+                 if (captureResult.Quality == "DP_QUALITY_CANCELED") {
+                    return CONTINUE;
+                }
+                else if (captureResult.Quality == "DP_QUALITY_GOOD") {
+                    if (divCapture.style.visibility == "visible")
+                    {
+                        var fivs = captureResult.Fid.Fivs;
+                        if (fivs.count != 0) {
+                            switch (getIEVersion(this.document)) 
+                            {
+                                case "7":
+                                    alert("Fingerprint captured."); // IE 7 does not have the ability to display images using data URI schemes.
+                                    imgFingerprint.style.visibility = "hidden";
+                                        default:
+                                            imgFingerprint.src = "data:image/png;base64," + fivs(0).Bitmap(.25); // IE 8 has a 32KB limit on data URI schemes so we shrink for viewing only.  fivs(0).Bitmap has the full image.
+                                            imgFingerprint.style.width = "100";
+                                            imgFingerprint.style.height = "100";
+                                            imgFingerprint.style.visibility = "visible";
+                            }
+                        }
+                        return OKAY;
+                    }
+                }
+                else if (captureResult.Quality == "DP_QUALITY_TIMED_OUT") {
+                    alert("Warning: A timeout occurred while capturing. Please start the operation over.");
+                    return CONTINUE; 
+                }
+                else if (captureResult.Quality == "DP_QUALITY_NO_FINGER") {
+                    alert("Warning: No finger detected.");
+                    return OKAY;
+                }
+                else if (captureResult.Quality == "DP_QUALITY_FAKE_FINGER") {
+                    alert("Warning: Fake finger detected.");
+                    return OKAY;
+                }
+
+                fid1 = captureResult.Fid;
+
+                if (fid1 == null)
+                {
+                    alert("Error occurred in capture.  Please try again.");
+                    return ERROR;
+                }  
+                
+                return OKAY;     
+            }
+        
+        var fid1;
+
+        function SendText(element, value) {
+            element.value += "\r\n" + value + "\r\n";
+            element.scrollTop = element.scrollHeight - element.clientHeight;
+        }
+        function Pause(ms) {
+            var date = new Date();
+            var curDate = null;
+            do { curDate = new Date(); }
+            while (curDate - date < ms);
+        }
+        function divVisibility(div, show) {
+            if (show)
+                div.style.visibility = "visible";
+            else
+                div.style.visibility = "hidden";
+        }
+        function getInternetExplorerVersion()
+        // Returns the version of Internet Explorer or a -1
+        // (indicating the use of another browser).
+        {
+            var rv = -1; // Return value assumes failure.
+            if (navigator.appName == 'Microsoft Internet Explorer') {
+                var ua = navigator.userAgent;
+                var re = new RegExp("MSIE ([0-9]{1,}[\.0-9]{0,})");
+                if (re.exec(ua) != null)
+                    rv = parseFloat(RegExp.$1);
+            }
+            return rv;
+        }
+        function getIEVersion(odoc) {
+            if (odoc.body.style.scrollbar3dLightColor != undefined) {
+                if (odoc.body.style.opacity != undefined) { return '9'; } // IE9
+                else if (odoc.body.style.msBlockProgression != undefined) { return '8'; } // IE8
+                else if (odoc.body.style.msInterpolationMode != undefined) { return '7'; } // IE7
+                else if (odoc.body.style.textOverflow != undefined) { return '6' } //IE6
+                else { return 'IE5.5'; } // or lower
+            }
+        }
+
+        function DestroyReader()
+        {
+                reader.Dispose();
+                readerDisposed = true;
+                txtSelectedReader.value = "";
+        }
+
+        function DisableEngine()
+        {
+            btnCapture.disabled = "disabled";
+            btnEnroll.disabled = "disabled";
+            btnIdentification.disabled = "disabled";
+            btnStreaming.disabled = "disabled";
+            btnVerification.disabled = "disabled";
+            btnCapabilities.disabled = "disabled";
+        }
+        
+        function Initialize() {
+            if (getInternetExplorerVersion() < 7) {
+                alert("DigitalPersona ActiveX controls only work on Internet Explorer 7 or later.");
+            }
+        }
+    </script>
+</head>
+<body onload="Initialize();" style="font-family: Tahoma;
+    font-size: 11px;">
+    Selected Reader:
+    <br />
+    <input type="text" name="txtSelectedReader" style="font-size: 11px; width: 300;"
+        id="txtSelectedReader" value="" /><br />
+    <input type="button" name="btnReaderSelection" id="btnReaderSelection" value="Reader Selection"
+        onclick="divVisibility(divReaderSelection, true); RefreshList();" /><br />
+    <input type="button" name="btnCapture" id="btnCapture" value="Capture" disabled="disabled"
+        onclick="divVisibility(divCapture, true);" /><br />
+    <input type="button" name="btnStreaming" id="btnStreaming" value="Streaming" disabled="disabled"
+        onclick="Streaming();" /><br />
+    <input type="button" name="btnVerification" id="btnVerification" value="Verification"
+        disabled="disabled" onclick="txtVerify.value = 'Click Capture Finger and place a finger on the reader then remove it.\r\n'; verifyState = 0; divVisibility(divVerification, true);" /><br />
+    <input type="button" name="btnIdentification" id="btnIdentification" value="Identification"
+        disabled="disabled" onclick="txtIdentify.value = 'Click Capture Finger and place your right thumb on the reader then remove it.\r\n';identifyState = 0; divVisibility(divIdentification, true);" /><br />
+    <input type="button" name="btnEnroll" id="btnEnroll" value="Enroll" disabled="disabled"
+        onclick="txtEnroll.value = 'Click Capture Finger and place a finger on the reader then remove it.\r\n';enrollmentCount = 0;objEnrollment.ClearFmds();divVisibility(divEnrollment, true);" /><br />
+    <div id="divReaderSelection">
+        Select Reader:
+        <br />
+        <select style="font-size: 11px; width: 300px; height: 200px;" id="Select1" name="lstReaders">
+        </select>
+        <input type="button" name="btnRefreshList" id="btnRefreshList" value="Refresh List"
+            onclick="RefreshList();" /><br />
+        <input type="button" name="btnCapabilities" id="btnCapabilities" value="Get Reader Capabilities"
+            disabled="disabled" onclick="Capabilities();" /><br />
+        <input type="button" name="btnBack" id="btnBack" value="Select" onclick="Back_GetReader();" />
+    </div>
+    <div id="divCapabilities" style="top: 33;">
+        Capabilities:<br />
+        <textarea rows="" cols="" id="Textarea1" name="txtCaps"></textarea><br />
+        <input type="button" name="btnBack_Caps" id="btnBack_Caps" value="Back" onclick="divVisibility(divCapabilities, false);" />
+    </div>
+    <div id="divCapture">
+        Capture/Stream:<br />
+        <input type="button" name="btnCaptureThread" id="btnCaptureThread" value="Capture Finger"
+            onclick="Capture(divCapture, btnCaptureThread, btnBack_Capture);" /><br />
+        <input type="button" name="btnBack_Capture" id="btnBack_Capture" value="Back" onclick="Back_Capture();" /><br />
+        <img alt="" name="imgFingerprint" src="" id="imgFingerprint" />
+    </div>
+    <div id="divVerification">
+        Verification:<br />
+        <textarea rows="" cols="" id="txtVerify" name="txtVerify">
+</textarea><br />
+        <input type="button" name="btnVerify" id="btnVerify" value="Capture Finger" onclick="Capture(divVerification, btnVerify, btnBack_Verify);" /><br />
+        <input type="button" name="btnBack_Verify" id="btnBack_Verify" value="Back" onclick="divVisibility(divVerification, false); if (reader != null) reader.CancelCapture();var t = setTimeout('reader.Dispose()', 50); btnVerify.disabled = '';" />
+    </div>
+    <div id="divIdentification">
+        Identification:<br />
+        <textarea rows="" cols="" id="txtIdentify" name="txtIdentify">
+</textarea><br />
+        <input type="button" name="btnIdentify" id="btnIdentify" value="Capture Finger" onclick="Capture(divIdentification, btnIdentify, btnBack_Identify);" /><br />
+        <input type="button" name="btnBack_Identify" id="btnBack_Identify" value="Back" onclick="divVisibility(divIdentification, false);  if (reader != null) reader.CancelCapture();var t = setTimeout('reader.Dispose()', 50);btnIdentify.disabled = ''; " />
+    </div>
+    <div id="divEnrollment">
+        Enrollment:<br />
+        <textarea rows="" cols="" id="txtEnroll" name="txtEnroll">
+</textarea><br />
+        <input type="button" name="btnEnrollment" id="btnEnrollment" value="Capture Finger"
+            onclick="Capture(divEnrollment, btnEnrollment, btnBack_Enrollment);" /><br />
+        <input type="button" name="btnBack_Enrollment" id="btnBack_Enrollment" value="Back"
+            onclick="divVisibility(divEnrollment, false);  if (reader != null) reader.CancelCapture();var t = setTimeout('reader.Dispose()', 50);btnEnrollment.disabled = '';" />
+    </div>
+</body>
+</html>
